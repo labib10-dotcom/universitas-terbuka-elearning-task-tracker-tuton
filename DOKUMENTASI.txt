@@ -1,17 +1,16 @@
 ===================================================================
 DOKUMENTASI TEKNIS - UT Academic Tracker Bot
-Versi: 5.0 | Terakhir diperbarui: 28 Juni 2026
+Versi: 6.0 | Terakhir diperbarui: 12 September 2026
 ===================================================================
 
 STRUKTUR FILE PROYEK:
   task-tracker/
-  ├── .github/workflows/jadwal-bot.yml  → Jadwal GitHub Actions (tiap 6 jam)
+  ├── .github/workflows/jadwal-bot.yml  → Jadwal GitHub Actions (tiap 4 jam)
   ├── src/main/java/com/autotracker/
   │   ├── App.java                       → Main + orkestrasi semua pengecekan
   │   ├── MoodleService.java             → Semua API Moodle UT
   │   ├── NotionService.java             → Semua API Notion (state management)
-  │   ├── TelegramService.java           → Kirim notifikasi Telegram
-  │   ├── App.txt                        → Backup kode versi awal (v1)
+  │   ├── TelegramService.java           → Kirim notifikasi & baca keyword Telegram
   │   └── DOKUMENTASI.txt               → File ini
   ├── .env                               → Kredensial lokal (JANGAN di-push!)
   ├── .env.example                       → Template .env
@@ -20,7 +19,7 @@ STRUKTUR FILE PROYEK:
   └── pom.xml                            → Maven dependencies
 
 ===================================================================
-FITUR AKTIF (v5.0)
+FITUR AKTIF (v6.0)
 ===================================================================
 
 [CEK 1] MATKUL BARU
@@ -28,14 +27,18 @@ FITUR AKTIF (v5.0)
   - Cek apakah matkul sudah ada di Notion (by Name)
   - Simpan ke Notion dengan prefix [MATKUL]
   - Notif Telegram hanya saat ada matkul baru (awal semester)
-  - Fitur Tambahan: Notifikasi penambahan matkul baru otomatis dilewati jika terdapat status penanda `[STATUS] Matkul Komplit` di Notion (untuk menghindari spam berkali-kali).
+  - Fitur Tambahan: Jika [STATUS] Stop sedang aktif di Notion dan matkul baru
+    terdeteksi, bot otomatis melakukan auto-resume (menghapus [STATUS] Stop)
+    dan mengirimkan notifikasi ke Telegram.
 
 [CEK 2] TUGAS & KUIS
-  - API: core_calendar_get_action_events_by_courses
-  - Filter timesortfrom = sekarang (tidak ambil event yang sudah lewat)
-  - Cek duplikat: Name + Mata Kuliah di Notion
-  - Notif Telegram jika ada tugas baru
-  - Fitur Tambahan: Pengecekan nama tugas terhadap pola akhir sesi (Sesi 8 atau Aktivitas Belajar 15).
+  - API: mod_assign_get_assignments
+  - Filter: hanya assignment yang sudah dibuka (allowsubmissionsfromdate) dan
+    belum melewati deadline (duedate)
+  - Cek duplikat: Name + Mata Kuliah di Notion (prefix [TUGAS])
+  - Cek completion via cmid (Activity Completion API)
+  - Fallback: mod_assign_get_submission_status jika cmid tidak tersedia
+  - Notif Telegram jika ada tugas baru yang belum dikerjakan
 
 [CEK 3] DISKUSI FORUM
   - API 1: mod_forum_get_forums_by_courses       → Ambil semua forum
@@ -45,7 +48,7 @@ FITUR AKTIF (v5.0)
   - Completion status dibaca dari Activity Completion Moodle (= tanda hijau Done)
   - Completion map dibangun SEKALI per course (efisien, bukan per diskusi)
   - Fallback: mod_forum_get_discussion_posts jika cmid tidak tersedia
-  - Fitur Tambahan: Pengecekan nama forum dan nama diskusi terhadap pola akhir sesi (Sesi 8 atau Aktivitas Belajar 15).
+  - Deteksi otomatis matkul Praktik (seksi "Aktivitas Belajar") vs Reguler (seksi "Sesi")
 
   Decision matrix tiap diskusi:
   ┌─────────────────────────────┬──────────────┬──────────────────────────────┐
@@ -61,23 +64,42 @@ FITUR AKTIF (v5.0)
   - Deteksi pesan private yang belum dibaca dari dosen di Moodle.
   - Kirim pengingat ke Telegram jika ada unread count > 0 dari orang lain.
 
-[CEK 5 / TELEGRAM KEYWORD] "Matkul Komplit!"
+[CEK 5 / TELEGRAM KEYWORD] TRIGGER WORD "Stop" & "Run"
   - API: /getUpdates (Telegram Bot API)
-  - Membaca input keyword "Matkul Komplit!" dari TELEGRAM_CHAT_ID yang sah.
-  - Jika terdeteksi, bot akan menyimpan penanda status `[STATUS] Matkul Komplit` ke database Notion dan mengirimkan pesan konfirmasi sukses.
+  - Dibaca di awal setiap run, sebelum cek elearning.
 
-[PENANGANAN AKHIR SEMESTER & SESI AKHIR]
+  Keyword "Stop":
+    - Jika diterima dan [STATUS] Stop belum ada di Notion:
+      → Menyimpan penanda [STATUS] Stop ke database Notion
+      → Mengirimkan konfirmasi ke Telegram
+    - Efek: laporan periodik tidak akan dikirim selama [STATUS] Stop aktif
+    - Bot TETAP berjalan dan mengecek elearning setiap run
+
+  Keyword "Run":
+    - Jika diterima dan [STATUS] Stop ada di Notion:
+      → Menghapus (arsip) penanda [STATUS] Stop dari Notion
+      → Mengirimkan konfirmasi ke Telegram
+    - Efek: laporan periodik kembali dikirim seperti biasa
+
+[PENANGANAN AKHIR SEMESTER]
   - Jika daftar mata kuliah di e-learning Moodle kosong (semester berakhir):
-    1. Bot akan otomatis menghapus status `[STATUS] Matkul Komplit` di Notion (agar siap untuk semester baru).
+    1. Bot akan otomatis menghapus status [STATUS] Matkul Komplit di Notion.
     2. Bot langsung tidur (return) tanpa mengirimkan laporan periodik.
-  - Jika bot mendeteksi pola akhir sesi (Sesi 8 atau Aktivitas Belajar 15) pada run tersebut:
-    - Jika semua tugas/diskusi di database Notion sudah selesai ("Selesai") dan tidak ada data terbaru yang ditarik (adaMatkulBaru/adaTugasBaru/adaDiskusiBaru/adaPesanBaru bernilai false), maka bot akan **melewati** pengiriman laporan periodik.
+    3. [STATUS] Stop TIDAK dihapus saat tidur — tetap aktif sampai user kirim "Run"
+       atau ada matkul baru terdeteksi (auto-resume).
+
+[AUTO-RESUME MATKUL BARU]
+  - Dipicu setelah cekMatkulBaru() jika adaMatkulBaru = true DAN [STATUS] Stop aktif.
+  - Bot menghapus [STATUS] Stop dari Notion secara otomatis.
+  - Mengirimkan notifikasi ke Telegram bahwa laporan diaktifkan kembali.
+  - Dirancang untuk skenario: user kirim "Stop" di akhir semester,
+    lalu semester baru dimulai → bot resume sendiri tanpa intervensi manual.
 
 [LAPORAN] PERIODIK (kondisional)
-  - Query Notion: semua item dengan Name starts_with "[DISKUSI]" dan tugas calendar.
+  - Query Notion: semua item dengan Name starts_with "[DISKUSI]" dan "[TUGAS]"
   - Filter di Java: hanya yang Status bukan "Selesai"
-  - Kirim ringkasan ke Telegram berisi daftar tugas & diskusi yang masih belum dikerjakan sebagai pengingat rutin.
-  - Dilewati jika kriteria [SESI AKHIR] di atas terpenuhi.
+  - Kirim ringkasan ke Telegram berisi daftar tugas & diskusi yang masih belum dikerjakan.
+  - DILEWATI jika [STATUS] Stop aktif di Notion.
 
 ===================================================================
 ANTI-DUPLIKASI (State Management)
@@ -91,9 +113,13 @@ Method cek di NotionService:
                                 Dipakai untuk [MATKUL] (nama sudah unik global)
 
   sudahAda(nama, namaMatkul)  → filter: Name == nama AND Mata Kuliah == namaMatkul
-                                Dipakai untuk [DISKUSI] dan tugas agar
+                                Dipakai untuk [DISKUSI] dan [TUGAS] agar
                                 "Diskusi.1" dari matkul berbeda tidak
                                 saling di-skip satu sama lain
+
+  isStopAktif()               → cek apakah [STATUS] Stop ada di Notion
+  simpanStatusStop()          → simpan [STATUS] Stop ke Notion
+  hapusStatusStop()           → arsipkan (soft-delete) [STATUS] Stop dari Notion
 
 ===================================================================
 API MOODLE YANG DIGUNAKAN
@@ -114,26 +140,31 @@ API MOODLE YANG DIGUNAKAN
        ?wsfunction=core_enrol_get_users_courses&userid={ID}&wstoken={TOKEN}&moodlewsrestformat=json
    Response: [ { "id": courseId, "fullname": "Nama Matkul", ... } ]
 
-4. CALENDAR EVENTS (tugas/kuis)
+4. ASSIGNMENT / TUGAS
    GET /webservice/rest/server.php
-       ?wsfunction=core_calendar_get_action_events_by_courses
-       &timesortfrom={UNIX_TIMESTAMP}
+       ?wsfunction=mod_assign_get_assignments
        &courseids[0]={ID}&courseids[1]={ID}...
-   Response: { "events": [ { "name": "Tugas 1", "course": { "id": ... } } ] }
+   Response: { "courses": [ { "id": courseId, "assignments": [ { "name": "...", "cmid": ..., "duedate": ... } ] } ] }
 
-5. FORUM LIST
+5. SUBMISSION STATUS TUGAS (fallback)
+   GET /webservice/rest/server.php
+       ?wsfunction=mod_assign_get_submission_status
+       &assignid={ID}&userid={USER_ID}&wstoken={TOKEN}&moodlewsrestformat=json
+   Response: { "lastattempt": { "submission": { "status": "submitted" | "..." } } }
+
+6. FORUM LIST
    GET /webservice/rest/server.php
        ?wsfunction=mod_forum_get_forums_by_courses
        &courseids[0]={ID}&courseids[1]={ID}...
    Response: [ { "id": forumId, "cmid": courseModuleId, "course": courseId, "name": "..." } ]
    NOTE: "cmid" = Course Module ID, unik per aktivitas, kunci untuk completion lookup
 
-6. DISKUSI PER FORUM
+7. DISKUSI PER FORUM
    GET /webservice/rest/server.php
        ?wsfunction=mod_forum_get_forum_discussions&forumid={ID}&wstoken={TOKEN}&moodlewsrestformat=json
    Response: { "discussions": [ { "id": discussionId, "name": "Diskusi.1" } ] }
 
-7. ACTIVITY COMPLETION STATUS ← KUNCI DETEKSI "SUDAH DIKERJAKAN"
+8. ACTIVITY COMPLETION STATUS ← KUNCI DETEKSI "SUDAH DIKERJAKAN"
    GET /webservice/rest/server.php
        ?wsfunction=core_completion_get_activities_completion_status
        &courseid={ID}&userid={USER_ID}&wstoken={TOKEN}&moodlewsrestformat=json
@@ -145,10 +176,23 @@ API MOODLE YANG DIGUNAKAN
      3 = Selesai dengan nilai gagal (complete fail)
    NOTE: Ini adalah sumber yang SAMA dengan tanda hijau "✓ Done" di UI Moodle
 
-8. POST DISKUSI (fallback)
+9. POST DISKUSI (fallback)
    GET /webservice/rest/server.php
        ?wsfunction=mod_forum_get_discussion_posts&discussionid={ID}&wstoken={TOKEN}&moodlewsrestformat=json
    Response: { "posts": [ { "userid": 12345, "message": "..." } ] }
+
+10. COURSE CONTENTS (deteksi Praktik vs Reguler)
+    GET /webservice/rest/server.php
+        ?wsfunction=core_course_get_contents&courseid={ID}
+        &options[0][name]=excludemodules&options[0][value]=1
+    Response: [ { "name": "Sesi 1" } ] atau [ { "name": "Aktivitas Belajar 1" } ]
+    NOTE: Dipakai untuk otomatis mendeteksi tipe matkul
+
+11. PESAN MASUK (Messaging API)
+    GET /webservice/rest/server.php
+        ?wsfunction=core_message_get_conversations
+        &userid={ID}&type=1&limitnum=50&wstoken={TOKEN}&moodlewsrestformat=json
+    Response: { "conversations": [ { "unreadcount": 1, "members": [...], "messages": [...] } ] }
 
 ===================================================================
 API NOTION YANG DIGUNAKAN
@@ -169,6 +213,11 @@ API NOTION YANG DIGUNAKAN
    Body: { "properties": { "Status": { "status": { "name": "Selesai" } } } }
    NOTE: Gunakan property type "status", bukan "select"
 
+4. ARSIPKAN HALAMAN (hapus status marker)
+   PATCH https://api.notion.com/v1/pages/{page_id}
+   Body: { "archived": true }
+   Dipakai untuk menghapus [STATUS] Stop dan [STATUS] Matkul Komplit
+
 ===================================================================
 ENVIRONMENT VARIABLES
 ===================================================================
@@ -188,8 +237,8 @@ GITHUB ACTIONS WORKFLOW
 
 File: .github/workflows/jadwal-bot.yml
 
-Jadwal: cron "0 */6 * * *" = setiap 6 jam sekali (00:00, 06:00, 12:00, 18:00 UTC)
-        Setara: 07:00, 13:00, 19:00, 01:00 WIB
+Jadwal: cron "0 */4 * * *" = setiap 4 jam sekali
+        Setara: 07:00, 11:00, 15:00, 19:00, 23:00, 03:00 WIB (UTC+7)
 
 Trigger manual: Settings → Actions → "Auto Bot Tracker UT" → Run workflow
 
@@ -214,10 +263,12 @@ Nilai Status yang dipakai:
   "Selesai"        → Di-update otomatis bot saat activity completion state >= 1
 
 Format prefix Name:
-  [MATKUL] Nama Matkul       → Mata kuliah aktif
-  [DISKUSI] Diskusi.1        → Diskusi forum
+  [MATKUL] Nama Matkul           → Mata kuliah aktif
+  [TUGAS] Nama Tugas             → Tugas dari Assignment API
+  [DISKUSI] Diskusi.1            → Diskusi forum
   [DISKUSI] Kehadiran Sesi ke-1  → Forum kehadiran
-  Nama Tugas / Event         → Tugas dari calendar (tanpa prefix)
+  [STATUS] Stop                  → Penanda laporan dinonaktifkan (Mata Kuliah: SYSTEM)
+  [STATUS] Matkul Komplit        → Penanda matkul sudah komplit (Mata Kuliah: SYSTEM)
 
 ===================================================================
 CATATAN PENTING & GOTCHA
@@ -250,6 +301,11 @@ CATATAN PENTING & GOTCHA
    Jika ada entry di Notion dari sebelum perubahan ini, dan entry tersebut
    tidak punya prefix [DISKUSI], maka diskusi dengan nama yang sama akan
    dianggap baru dan dinotif lagi. Solve: hapus atau beri prefix manual.
+
+7. [STATUS] Stop TIDAK OTOMATIS HILANG SAAT SEMESTER BERAKHIR
+   Jika user kirim "Stop" dan semester berakhir (Moodle kosong), bot tidur
+   tanpa menghapus [STATUS] Stop. Stop tetap aktif sampai user kirim "Run"
+   atau ada matkul baru terdeteksi di semester berikutnya (auto-resume).
 
 ===================================================================
 RIWAYAT PERUBAHAN
@@ -290,3 +346,26 @@ RIWAYAT PERUBAHAN
   - Penapisan notifikasi periodik Telegram pada Sesi 8 / Aktivitas Belajar 15 saat semua tugas selesai.
   - Reset otomatis status dan penghentian notifikasi periodik saat semester berakhir (mata kuliah kosong).
   - Integrasi perintah Telegram "Matkul Komplit!" untuk menonaktifkan notifikasi penambahan mata kuliah secara dinamis.
+
+[v6.0] - Sistem Trigger Word Stop/Run (menggantikan deteksi Sesi Akhir)
+  - DIHAPUS: Seluruh logika deteksi pola Sesi 8 / Aktivitas Belajar 15
+    (checkEndSessionPattern, hasReachedEndSession, isEndSessionReached).
+    Deteksi ini rentan false-positive dan tidak reliabel karena bergantung
+    pada pola nama yang bisa berubah sewaktu-waktu.
+  - DIHAPUS: Keyword Telegram "Matkul Komplit!" — digantikan oleh sistem
+    trigger word yang lebih fleksibel.
+  - BARU: Trigger word "Stop" via Telegram.
+    Menyimpan [STATUS] Stop ke Notion. Selama aktif, bot berhenti mengirim
+    laporan periodik namun tetap mengecek elearning setiap run.
+  - BARU: Trigger word "Run" via Telegram.
+    Menghapus [STATUS] Stop dari Notion. Laporan periodik aktif kembali.
+  - BARU: Auto-resume otomatis saat matkul baru terdeteksi.
+    Jika [STATUS] Stop aktif namun elearning menambahkan matkul baru
+    (semester baru dimulai), bot secara otomatis menghapus [STATUS] Stop
+    dan mengirimkan notifikasi tanpa perlu intervensi manual dari user.
+  - UPDATE: Ganti API tugas dari Calendar API → mod_assign_get_assignments
+    agar lebih akurat dan tidak bergantung pada event kalender.
+  - UPDATE: Jadwal GitHub Actions diperbarui dari tiap 6 jam → tiap 4 jam.
+  - UPDATE: Tambah logging Telegram (status HTTP response) untuk debugging.
+  - UPDATE: Tambah logging detail di TelegramService.kirim() untuk memudahkan
+    debug saat pesan tidak terkirim.

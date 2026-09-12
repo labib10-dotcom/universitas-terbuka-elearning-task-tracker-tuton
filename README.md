@@ -8,15 +8,16 @@ Bot otomatis berbasis **Java** yang memantau aktivitas e-learning **Universitas 
 
 | Fitur | Keterangan |
 |---|---|
-| 📋 Deteksi Matkul Baru | Notif Telegram saat semester baru & matkul aktif (dilewati jika sudah komplit) |
-| 📡 Pantau Tugas & Kuis | Ambil dari Moodle Calendar API per-course |
+| 📋 Deteksi Matkul Baru | Notif Telegram saat semester baru & matkul aktif |
+| 📡 Pantau Tugas & Kuis | Ambil dari Moodle Assignment API per-course |
 | 💬 Pantau Diskusi Forum | Filter hanya Diskusi, Kehadiran & Tugas yang relevan |
 | ✅ Deteksi Sudah Dikerjakan | Baca tanda hijau "Done" langsung dari Activity Completion Moodle |
-| 📊 Laporan Periodik | Reminder ke Telegram setiap run (dilewati jika sudah sesi akhir & tugas beres) |
+| 📊 Laporan Periodik | Reminder ke Telegram setiap run (dikendalikan via trigger word) |
 | 🔁 Anti-Duplikasi | State management via Notion, aman di environment ephemeral GitHub Actions |
-| 🤫 Penanganan Sesi Akhir | Menghentikan spam laporan jika sudah masuk Sesi 8 / Aktivitas 15 dan semua tugas selesai |
+| ⏸️ Trigger Word Stop | Kirim `Stop` ke bot Telegram untuk menghentikan laporan periodik |
+| ▶️ Trigger Word Run | Kirim `Run` ke bot Telegram untuk mengaktifkan kembali laporan |
+| 🔄 Auto-Resume Matkul Baru | Laporan otomatis aktif kembali jika elearning menambahkan matkul baru |
 | 🧹 Reset Akhir Semester | Otomatis berhenti beroperasi & mereset status penanda matkul jika Moodle kosong |
-| 🆗 Keyword Telegram | Mengirim keyword "Matkul Komplit!" ke bot Telegram untuk menonaktifkan notif matkul baru |
 
 ---
 
@@ -26,12 +27,12 @@ Bot otomatis berbasis **Java** yang memantau aktivitas e-learning **Universitas 
 task-tracker/
 ├── .github/
 │   └── workflows/
-│       └── jadwal-bot.yml      # Jadwal otomatis (setiap 6 jam)
+│       └── jadwal-bot.yml      # Jadwal otomatis (setiap 4 jam)
 ├── src/main/java/com/autotracker/
-│   ├── App.java                # Main + orchestration 3 pengecekan
+│   ├── App.java                # Main + orchestration 4 pengecekan
 │   ├── MoodleService.java      # Semua API e-learning Moodle UT
 │   ├── NotionService.java      # Semua API Notion (state management)
-│   └── TelegramService.java    # Kirim notifikasi Telegram
+│   └── TelegramService.java    # Kirim notifikasi & baca keyword Telegram
 ├── .env.example                # Template variabel lingkungan
 ├── .gitignore                  # .env diabaikan Git
 └── pom.xml                     # Maven dependencies
@@ -42,18 +43,23 @@ task-tracker/
 ## 🔄 Alur Kerja Bot
 
 ```
-GitHub Actions (tiap 6 jam)
+GitHub Actions (tiap 4 jam)
+        │
+        ▼
+   Cek Trigger Word Telegram ("Stop" / "Run")
         │
         ▼
    Login Moodle → Ambil Token & User ID
         │
         ▼
    Ambil Daftar Matkul
+        │ (kosong → bot tidur, reset status semester)
         │
         ├─ [CEK 1] Matkul Baru?
         │          └─ Ya → Simpan Notion + Notif Telegram
+        │             (+ Auto-resume jika Stop sedang aktif)
         │
-        ├─ [CEK 2] Tugas/Kuis Baru? (Calendar API)
+        ├─ [CEK 2] Tugas Baru? (Assignment API)
         │          └─ Ya → Simpan Notion + Notif Telegram
         │
         ├─ [CEK 3] Diskusi Forum? (Forum API + Completion API)
@@ -61,8 +67,11 @@ GitHub Actions (tiap 6 jam)
         │          ├─ Sudah ada + Baru selesai → Update Notion → "Selesai" ✅
         │          └─ Sudah dikerjakan tapi baru masuk → Simpan langsung sebagai Selesai
         │
+        ├─ [CEK 4] Pesan Dosen? (Messaging API)
+        │          └─ Ya (unread > 0) → Notif Telegram
+        │
         └─ [LAPORAN] Kirim ringkasan ke Telegram
-                   └─ Daftar diskusi yang masih belum dikerjakan (dari Notion)
+                   └─ Dilewati jika [STATUS] Stop aktif
 ```
 
 ---
@@ -118,13 +127,34 @@ Di repositori GitHub: **Settings → Secrets and variables → Actions → New r
 
 ### 6. Jalankan Bot
 
-Bot akan otomatis berjalan setiap **6 jam** sesuai jadwal di `jadwal-bot.yml`.
+Bot akan otomatis berjalan setiap **4 jam** sesuai jadwal di `jadwal-bot.yml`.
 
 Untuk menjalankan manual: **Actions → Auto Bot Tracker UT → Run workflow**
 
 ---
 
+## 🎮 Trigger Word (Kontrol via Telegram)
+
+Kirim pesan langsung ke bot Telegram kamu untuk mengontrol perilaku laporan:
+
+| Keyword | Efek |
+|---|---|
+| `Stop` | Menghentikan laporan periodik. Bot tetap cek elearning tapi tidak kirim ringkasan. |
+| `Run` | Mengaktifkan kembali laporan periodik. |
+
+> 💡 **Auto-Resume**: Jika kamu mengirim `Stop` lalu elearning menambahkan matkul baru (semester baru), bot **otomatis mengaktifkan kembali** laporan tanpa perlu kirim `Run` manual.
+
+---
+
 ## 📱 Contoh Notifikasi Telegram
+
+**Matkul Baru (awal semester):**
+```
+📚 Semester Baru! 3 matkul aktif:
+• Analisis dan Perancangan Sistem
+• Kewirausahaan di Era Digital
+• Proses Bisnis
+```
 
 **Diskusi Baru:**
 ```
@@ -151,6 +181,18 @@ Untuk menjalankan manual: **Actions → Auto Bot Tracker UT → Run workflow**
 💡 Yuk segera dikerjain sebelum deadline!
 ```
 
+**Konfirmasi Stop:**
+```
+⏸️ Bot dihentikan. Laporan periodik tidak akan dikirim sampai kamu kirim 'Run'.
+
+💡 Kirim 'Run' untuk mengaktifkan kembali.
+```
+
+**Auto-Resume (saat ada matkul baru):**
+```
+🆕 Elearning memiliki mata kuliah baru! Laporan periodik diaktifkan kembali secara otomatis.
+```
+
 ---
 
 ## 🗄️ Basis Data Notion
@@ -160,9 +202,10 @@ Bot menggunakan Notion sebagai **persistent state** — pengganti file lokal yan
 | Prefix di Notion / Entri Khusus | Artinya |
 |---|---|
 | `[MATKUL] Nama Matkul` | Mata kuliah yang sudah terdeteksi |
+| `[TUGAS] Nama Tugas` | Tugas yang sudah/belum dikerjakan |
 | `[DISKUSI] Diskusi.1` | Diskusi forum yang sudah/belum dikerjakan |
 | `[STATUS] Matkul Komplit` | Penanda bahwa seluruh mata kuliah telah selesai diimpor (Mata Kuliah: `SYSTEM`) |
-| *(tanpa prefix)* | Tugas / kuis dari calendar |
+| `[STATUS] Stop` | Penanda bahwa laporan periodik sedang dinonaktifkan (Mata Kuliah: `SYSTEM`) |
 
 ---
 
@@ -195,6 +238,7 @@ Bot menggunakan Notion sebagai **persistent state** — pengganti file lokal yan
 | Status tidak update ke Selesai | Nama status bukan `Selesai` | Pastikan ada opsi `Selesai` di property Status |
 | Diskusi tidak terdeteksi | Nama forum tidak diawali Diskusi/Kehadiran/Tugas | Periksa nama forum di e-learning |
 | Tidak ada notif Telegram | Token atau Chat ID salah | Tes manual via Telegram API |
+| Bot tidak kirim laporan | `[STATUS] Stop` masih aktif di Notion | Kirim `Run` ke bot Telegram |
 
 ---
 
