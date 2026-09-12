@@ -69,23 +69,24 @@ public class App {
         boolean semuaSelesai = pendingTugas.isEmpty() && pendingDiskusi.isEmpty();
         boolean adaDataBaru = adaMatkulBaru || adaTugasBaru || adaDiskusiBaru || adaPesanBaru;
 
-        // Jika run ini mendeteksi sesi akhir, simpan ke Notion agar persistent
+        // Cek apakah run INI mendeteksi sesi akhir dari elearning
         boolean endSessionRunIni = MoodleService.isEndSessionReached();
+
         if (endSessionRunIni) {
+            // Sesi akhir masih ada di elearning → simpan/pertahankan flag di Notion
             NotionService.simpanStatusEndSession();
+            System.out.println("🔒 Sesi akhir dikonfirmasi dari elearning. Flag dipertahankan di Notion.");
+        } else {
+            // Run ini TIDAK mendeteksi sesi akhir → semester baru / kursus baru
+            // Hapus flag lama dari Notion agar laporan kembali berjalan
+            if (NotionService.isEndSessionTersimpan()) {
+                System.out.println("🔄 Elearning tidak lagi menampilkan Sesi 8/AB-15 — mereset flag End Session.");
+                NotionService.hapusStatusEndSession();
+            }
         }
 
-        // Baca status end session dari Notion (persistent antar-run)
-        boolean endSessionReached = NotionService.isEndSessionTersimpan();
-
-        // Reset flag end session jika ada matkul baru (artinya semester baru)
-        if (adaMatkulBaru && endSessionReached) {
-            System.out.println("🔄 Matkul baru terdeteksi — mereset flag End Session untuk semester baru.");
-            NotionService.hapusStatusEndSession();
-            endSessionReached = false;
-        }
-
-        if (endSessionReached && semuaSelesai && !adaDataBaru) {
+        // Final: laporan dihentikan HANYA jika sesi akhir terdeteksi di run INI
+        if (endSessionRunIni && semuaSelesai && !adaDataBaru) {
             System.out.println("🤫 Sesi akhir (Sesi 8/Aktivitas 15) terdeteksi, semua tugas selesai, dan tidak ada data baru. Melewati laporan periodik.");
         } else {
             kirimRingkasanPeriodik(pendingTugas, pendingDiskusi);

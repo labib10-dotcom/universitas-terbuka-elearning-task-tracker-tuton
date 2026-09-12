@@ -44,6 +44,9 @@ public class MoodleService {
         // Pola Aktivitas Belajar 15: harus persis "aktivitas belajar 15" atau "ke-15"
         boolean isAktivitasBelajar15 = lower.matches(".*(aktivitas\\s+belajar\\s+ke[-\\s]?15|aktivitas\\s+belajar\\s+15)([^0-9]|$).*");
 
+        if (isSesi8 || isAktivitasBelajar15) {
+            System.out.println("   🔔 [END SESSION DETECTED] Teks pemicu: \"" + text + "\"");
+        }
         return isSesi8 || isAktivitasBelajar15;
     }
 
