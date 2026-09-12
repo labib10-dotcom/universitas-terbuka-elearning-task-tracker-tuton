@@ -191,22 +191,26 @@ public class NotionService {
         arsipkanStatus("[STATUS] Matkul Komplit");
     }
 
-    /** Cek apakah flag End Session sudah tersimpan di Notion */
-    public static boolean isEndSessionTersimpan() {
-        return sudahAda("[STATUS] End Session", "SYSTEM");
+    // ==========================================
+    // STOP / RUN TRIGGER WORD
+    // ==========================================
+
+    /** Cek apakah [STATUS] Stop aktif di Notion → laporan periodik dinonaktifkan */
+    public static boolean isStopAktif() {
+        return sudahAda("[STATUS] Stop", "SYSTEM");
     }
 
-    /** Simpan flag End Session ke Notion (persistent antar-run) */
-    public static void simpanStatusEndSession() {
-        if (!isEndSessionTersimpan()) {
-            simpan("[STATUS] End Session", "SYSTEM");
-            System.out.println("💾 Flag End Session disimpan ke Notion.");
+    /** Simpan [STATUS] Stop ke Notion saat user mengirim keyword "Stop" */
+    public static void simpanStatusStop() {
+        if (!isStopAktif()) {
+            simpan("[STATUS] Stop", "SYSTEM");
+            System.out.println("💾 [STATUS] Stop disimpan ke Notion.");
         }
     }
 
-    /** Hapus/reset flag End Session dari Notion (saat semester baru) */
-    public static void hapusStatusEndSession() {
-        arsipkanStatus("[STATUS] End Session");
+    /** Hapus [STATUS] Stop dari Notion saat user kirim "Run" atau ada matkul baru */
+    public static void hapusStatusStop() {
+        arsipkanStatus("[STATUS] Stop");
     }
 
     /** Arsipkan (soft-delete) sebuah status marker dari Notion */
@@ -240,6 +244,7 @@ public class NotionService {
             }
         }
     }
+
 
     /** Ambil page ID dari Notion berdasarkan Name + Mata Kuliah */
     public static String getPageId(String nama, String namaMatkul) {

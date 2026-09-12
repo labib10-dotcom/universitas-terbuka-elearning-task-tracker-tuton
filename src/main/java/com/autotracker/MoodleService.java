@@ -23,32 +23,7 @@ public class MoodleService {
     private static final String NIM = dotenv.get("UT_NIM");
     private static final String PASS = dotenv.get("UT_PASS");
 
-    private static boolean hasReachedEndSession = false;
 
-    public static boolean isEndSessionReached() {
-        return hasReachedEndSession;
-    }
-
-    public static void setEndSessionReached(boolean val) {
-        hasReachedEndSession = val;
-    }
-
-    public static boolean checkEndSessionPattern(String text) {
-        if (text == null) return false;
-        String lower = text.toLowerCase();
-
-        // Pola Sesi 8: harus berupa "sesi 8", "sesi ke-8", "sesi ke 8"
-        // Menggunakan regex agar tidak false-positive pada "sesi 18", "diskusi.8", dsb.
-        boolean isSesi8 = lower.matches(".*(sesi\\s+ke[-\\s]?8|sesi\\s+8)([^0-9]|$).*");
-
-        // Pola Aktivitas Belajar 15: harus persis "aktivitas belajar 15" atau "ke-15"
-        boolean isAktivitasBelajar15 = lower.matches(".*(aktivitas\\s+belajar\\s+ke[-\\s]?15|aktivitas\\s+belajar\\s+15)([^0-9]|$).*");
-
-        if (isSesi8 || isAktivitasBelajar15) {
-            System.out.println("   🔔 [END SESSION DETECTED] Teks pemicu: \"" + text + "\"");
-        }
-        return isSesi8 || isAktivitasBelajar15;
-    }
 
     /** Login ke Moodle dan dapatkan token API */
     public static String getToken() {
@@ -124,9 +99,6 @@ public class MoodleService {
             JSONArray sections = new JSONArray(res.body());
             for (int i = 0; i < sections.length(); i++) {
                 String sectionName = sections.getJSONObject(i).optString("name", "");
-                if (checkEndSessionPattern(sectionName)) {
-                    hasReachedEndSession = true;
-                }
                 if (sectionName.toLowerCase().contains("aktivitas belajar")) {
                     return true;
                 }
@@ -135,6 +107,7 @@ public class MoodleService {
             System.out.println("⚠️ Gagal cek tipe course " + courseId + ": " + e.getMessage());
         }
         return false;
+
     }
 
     /**

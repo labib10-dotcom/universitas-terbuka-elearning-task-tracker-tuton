@@ -23,15 +23,29 @@ public class App {
     public static void main(String[] args) {
         System.out.println("\n⏳ [" + java.time.LocalTime.now() + "] Bot bangun! Mengecek e-learning...");
 
-        // Cek apakah user mengirim "Matkul Komplit!" di Telegram
-        if (TelegramService.cekKeyword("Matkul Komplit!")) {
-            System.out.println("📥 Terdeteksi keyword 'Matkul Komplit!' dari Telegram.");
-            if (!NotionService.sudahAda("[STATUS] Matkul Komplit", "SYSTEM")) {
-                NotionService.simpan("[STATUS] Matkul Komplit", "SYSTEM");
-                System.out.println("💾 Menyimpan [STATUS] Matkul Komplit ke Notion.");
-                TelegramService.kirim("🆗 Status 'Matkul Komplit!' terdeteksi. Notifikasi pembaharuan mata kuliah telah dinonaktifkan.");
+        // ── CEK TRIGGER WORD dari Telegram ──────────────────────────────────────
+        // "Stop" → nonaktifkan laporan periodik
+        if (TelegramService.cekKeyword("Stop")) {
+            System.out.println("📥 Terdeteksi keyword 'Stop' dari Telegram.");
+            if (!NotionService.isStopAktif()) {
+                NotionService.simpanStatusStop();
+                TelegramService.kirim("⏸️ Bot dihentikan. Laporan periodik tidak akan dikirim sampai kamu kirim 'Run'.\n\n💡 Kirim 'Run' untuk mengaktifkan kembali.");
+            } else {
+                System.out.println("ℹ️ [STATUS] Stop sudah aktif, tidak perlu disimpan ulang.");
             }
         }
+
+        // "Run" → aktifkan kembali laporan periodik
+        if (TelegramService.cekKeyword("Run")) {
+            System.out.println("📥 Terdeteksi keyword 'Run' dari Telegram.");
+            if (NotionService.isStopAktif()) {
+                NotionService.hapusStatusStop();
+                TelegramService.kirim("▶️ Bot diaktifkan kembali! Laporan periodik akan dikirim seperti biasa.");
+            } else {
+                System.out.println("ℹ️ [STATUS] Stop tidak aktif, bot sudah jalan normal.");
+            }
+        }
+        // ────────────────────────────────────────────────────────────────────────
 
         String token = MoodleService.getToken();
         if (token == null) {
@@ -48,12 +62,10 @@ public class App {
         JSONArray daftarMatkul = MoodleService.getDaftarMatkul(token, userId);
         if (daftarMatkul == null || daftarMatkul.isEmpty()) {
             System.out.println("📭 Belum ada mata kuliah aktif. Bot tidur.");
-            // Reset semua status saat semester berakhir (tidak ada matkul aktif)
+            // Reset Matkul Komplit saat tidak ada matkul aktif (pergantian semester)
             NotionService.hapusStatusMatkulKomplit();
-            NotionService.hapusStatusEndSession();
             return;
         }
-
 
         // Buat peta courseId -> namaMatkul untuk lookup cepat di semua pengecekan
         Map<Integer, String> courseMap = MoodleService.buildCourseMap(daftarMatkul);
@@ -63,52 +75,31 @@ public class App {
         cekDiskusiBaru(token, daftarMatkul, courseMap, userId);
         cekPesanDosen(token, userId);
 
-        // Cek apakah semua tugas sudah selesai di Notion
+        // ── AUTO-RESUME saat ada matkul BARU (semester baru dimulai) ────────────
+        if (adaMatkulBaru && NotionService.isStopAktif()) {
+            System.out.println("🔄 Matkul baru terdeteksi — mengaktifkan laporan otomatis (auto-resume).");
+            NotionService.hapusStatusStop();
+            TelegramService.kirim("🆕 Elearning memiliki mata kuliah baru! Laporan periodik diaktifkan kembali secara otomatis.");
+        }
+        // ────────────────────────────────────────────────────────────────────────
+
         List<String> pendingTugas = NotionService.getPendingTugas();
         List<String> pendingDiskusi = NotionService.getPendingDiskusi();
-        boolean semuaSelesai = pendingTugas.isEmpty() && pendingDiskusi.isEmpty();
-        boolean adaDataBaru = adaMatkulBaru || adaTugasBaru || adaDiskusiBaru || adaPesanBaru;
 
-        // Cek apakah run INI mendeteksi sesi akhir dari elearning
-        boolean endSessionRunIni = MoodleService.isEndSessionReached();
+        // Cek status Stop (setelah kemungkinan auto-resume di atas)
+        boolean stopAktif = NotionService.isStopAktif();
+        System.out.println("\n🔎 [STATUS] Stop aktif: " + stopAktif
+                + " | pendingTugas=" + pendingTugas.size()
+                + " | pendingDiskusi=" + pendingDiskusi.size());
 
-        // ── DIAGNOSTIK ────────────────────────────────────────────────
-        System.out.println("\n🔎 [DIAGNOSTIK] Status akhir run:");
-        System.out.println("   pendingTugas   : " + pendingTugas.size() + " item");
-        System.out.println("   pendingDiskusi : " + pendingDiskusi.size() + " item");
-        System.out.println("   semuaSelesai   : " + semuaSelesai);
-        System.out.println("   adaDataBaru    : " + adaDataBaru
-                + " (matkul=" + adaMatkulBaru + ", tugas=" + adaTugasBaru
-                + ", diskusi=" + adaDiskusiBaru + ", pesan=" + adaPesanBaru + ")");
-        System.out.println("   endSessionRunIni: " + endSessionRunIni);
-        // ─────────────────────────────────────────────────────────────
-
-        if (endSessionRunIni) {
-            // Sesi akhir masih ada di elearning → simpan/pertahankan flag di Notion
-            NotionService.simpanStatusEndSession();
-            System.out.println("🔒 Sesi akhir dikonfirmasi dari elearning. Flag dipertahankan di Notion.");
+        if (stopAktif) {
+            System.out.println("⏸️ [STATUS] Stop aktif — melewati laporan periodik.");
         } else {
-            // Run ini TIDAK mendeteksi sesi akhir → semester baru / kursus baru
-            // Hapus flag lama dari Notion agar laporan kembali berjalan
-            if (NotionService.isEndSessionTersimpan()) {
-                System.out.println("🔄 Elearning tidak lagi menampilkan Sesi 8/AB-15 — mereset flag End Session.");
-                NotionService.hapusStatusEndSession();
-            }
-        }
-
-        // Final: laporan dihentikan HANYA jika sesi akhir terdeteksi di run INI
-        if (endSessionRunIni && semuaSelesai && !adaDataBaru) {
-            System.out.println("🤫 Sesi akhir (Sesi 8/Aktivitas 15) terdeteksi, semua tugas selesai, dan tidak ada data baru. Melewati laporan periodik.");
-        } else {
-            System.out.println("📊 Kondisi laporan: endSession=" + endSessionRunIni
-                    + " | semuaSelesai=" + semuaSelesai + " | adaDataBaru=" + adaDataBaru
-                    + " → Mengirim laporan...");
             kirimRingkasanPeriodik(pendingTugas, pendingDiskusi);
         }
 
         System.out.println("\n💤 Pengecekan selesai. Bot tidur lagi...");
     }
-
 
     // ==========================================
     // CEK 1: Matkul Baru (awal semester)
@@ -188,11 +179,6 @@ public class App {
                 boolean belumLewat = duedate == 0 || duedate > sekarang;
                 if (!sudahBuka || !belumLewat)
                     continue;
-
-                // Cek pola sesi akhir dari nama tugas
-                if (MoodleService.checkEndSessionPattern(namaTugas)) {
-                    MoodleService.setEndSessionReached(true);
-                }
 
                 // Cek 1: completion status via cmid (Praktik: "Mark as Done" button)
                 Map<Integer, Integer> completionMap = completionByCourse.getOrDefault(courseId, new HashMap<>());
@@ -428,12 +414,6 @@ public class App {
                 String namaMatkul = courseMap.getOrDefault(courseId, "Matkul Tidak Diketahui");
                 boolean isPraktik = praktikCourseIds.contains(courseId);
 
-                // Cek pola sesi akhir dari nama forum
-                String forumName = forum.optString("name", "");
-                if (MoodleService.checkEndSessionPattern(forumName)) {
-                    MoodleService.setEndSessionReached(true);
-                }
-
                 // Tentukan status selesai via Moodle completion (= tanda hijau Done di UI)
                 // State: 0=belum, 1=selesai, 2=selesai(pass), 3=selesai(fail)
                 boolean sudahDikerjakan;
@@ -464,10 +444,6 @@ public class App {
                     JSONObject disc = discussions.getJSONObject(d);
                     String namaDiskusi = disc.getString("name");
 
-                    // Cek pola sesi akhir dari nama diskusi
-                    if (MoodleService.checkEndSessionPattern(namaDiskusi)) {
-                        MoodleService.setEndSessionReached(true);
-                    }
                     int discussionId = disc.getInt("id");
 
                     if (!MoodleService.isForumRelevan(namaDiskusi, isPraktik)) {
