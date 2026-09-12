@@ -72,6 +72,17 @@ public class App {
         // Cek apakah run INI mendeteksi sesi akhir dari elearning
         boolean endSessionRunIni = MoodleService.isEndSessionReached();
 
+        // ── DIAGNOSTIK ────────────────────────────────────────────────
+        System.out.println("\n🔎 [DIAGNOSTIK] Status akhir run:");
+        System.out.println("   pendingTugas   : " + pendingTugas.size() + " item");
+        System.out.println("   pendingDiskusi : " + pendingDiskusi.size() + " item");
+        System.out.println("   semuaSelesai   : " + semuaSelesai);
+        System.out.println("   adaDataBaru    : " + adaDataBaru
+                + " (matkul=" + adaMatkulBaru + ", tugas=" + adaTugasBaru
+                + ", diskusi=" + adaDiskusiBaru + ", pesan=" + adaPesanBaru + ")");
+        System.out.println("   endSessionRunIni: " + endSessionRunIni);
+        // ─────────────────────────────────────────────────────────────
+
         if (endSessionRunIni) {
             // Sesi akhir masih ada di elearning → simpan/pertahankan flag di Notion
             NotionService.simpanStatusEndSession();
@@ -89,11 +100,15 @@ public class App {
         if (endSessionRunIni && semuaSelesai && !adaDataBaru) {
             System.out.println("🤫 Sesi akhir (Sesi 8/Aktivitas 15) terdeteksi, semua tugas selesai, dan tidak ada data baru. Melewati laporan periodik.");
         } else {
+            System.out.println("📊 Kondisi laporan: endSession=" + endSessionRunIni
+                    + " | semuaSelesai=" + semuaSelesai + " | adaDataBaru=" + adaDataBaru
+                    + " → Mengirim laporan...");
             kirimRingkasanPeriodik(pendingTugas, pendingDiskusi);
         }
 
         System.out.println("\n💤 Pengecekan selesai. Bot tidur lagi...");
     }
+
 
     // ==========================================
     // CEK 1: Matkul Baru (awal semester)

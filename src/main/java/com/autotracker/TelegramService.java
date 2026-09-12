@@ -21,7 +21,12 @@ public class TelegramService {
         try {
             String botToken = dotenv.get("TELEGRAM_BOT_TOKEN");
             String chatId = dotenv.get("TELEGRAM_CHAT_ID");
-            if (botToken == null || chatId == null) return;
+            if (botToken == null || chatId == null) {
+                System.out.println("❌ [TELEGRAM] Token atau Chat ID tidak ditemukan di .env!");
+                return;
+            }
+
+            System.out.println("📤 [TELEGRAM] Mengirim pesan ke chat " + chatId + "...");
 
             JSONObject body = new JSONObject();
             body.put("chat_id", chatId);
@@ -33,7 +38,12 @@ public class TelegramService {
                     .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
                     .build();
 
-            httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            if (res.statusCode() == 200) {
+                System.out.println("✅ [TELEGRAM] Pesan berhasil terkirim.");
+            } else {
+                System.out.println("❌ [TELEGRAM] Gagal kirim (HTTP " + res.statusCode() + "): " + res.body());
+            }
         } catch (Exception e) {
             System.out.println("🚨 Error Telegram: " + e.getMessage());
         }
