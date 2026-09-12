@@ -48,10 +48,12 @@ public class App {
         JSONArray daftarMatkul = MoodleService.getDaftarMatkul(token, userId);
         if (daftarMatkul == null || daftarMatkul.isEmpty()) {
             System.out.println("📭 Belum ada mata kuliah aktif. Bot tidur.");
-            // Reset status Matkul Komplit saat semester berakhir (tidak ada matkul aktif)
+            // Reset semua status saat semester berakhir (tidak ada matkul aktif)
             NotionService.hapusStatusMatkulKomplit();
+            NotionService.hapusStatusEndSession();
             return;
         }
+
 
         // Buat peta courseId -> namaMatkul untuk lookup cepat di semua pengecekan
         Map<Integer, String> courseMap = MoodleService.buildCourseMap(daftarMatkul);
@@ -66,7 +68,22 @@ public class App {
         List<String> pendingDiskusi = NotionService.getPendingDiskusi();
         boolean semuaSelesai = pendingTugas.isEmpty() && pendingDiskusi.isEmpty();
         boolean adaDataBaru = adaMatkulBaru || adaTugasBaru || adaDiskusiBaru || adaPesanBaru;
-        boolean endSessionReached = MoodleService.isEndSessionReached();
+
+        // Jika run ini mendeteksi sesi akhir, simpan ke Notion agar persistent
+        boolean endSessionRunIni = MoodleService.isEndSessionReached();
+        if (endSessionRunIni) {
+            NotionService.simpanStatusEndSession();
+        }
+
+        // Baca status end session dari Notion (persistent antar-run)
+        boolean endSessionReached = NotionService.isEndSessionTersimpan();
+
+        // Reset flag end session jika ada matkul baru (artinya semester baru)
+        if (adaMatkulBaru && endSessionReached) {
+            System.out.println("🔄 Matkul baru terdeteksi — mereset flag End Session untuk semester baru.");
+            NotionService.hapusStatusEndSession();
+            endSessionReached = false;
+        }
 
         if (endSessionReached && semuaSelesai && !adaDataBaru) {
             System.out.println("🤫 Sesi akhir (Sesi 8/Aktivitas 15) terdeteksi, semua tugas selesai, dan tidak ada data baru. Melewati laporan periodik.");

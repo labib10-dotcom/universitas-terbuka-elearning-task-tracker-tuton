@@ -36,13 +36,14 @@ public class MoodleService {
     public static boolean checkEndSessionPattern(String text) {
         if (text == null) return false;
         String lower = text.toLowerCase();
-        
-        // Pola Sesi 8: mengandung "sesi" dan "8"
-        boolean isSesi8 = lower.contains("sesi") && (lower.contains("8") || lower.contains("ke-8") || lower.contains("ke 8"));
-        
-        // Pola Aktivitas Belajar 15: mengandung "aktivitas belajar" dan "15"
-        boolean isAktivitasBelajar15 = lower.contains("aktivitas belajar") && (lower.contains("15") || lower.contains("ke-15") || lower.contains("ke 15"));
-        
+
+        // Pola Sesi 8: harus berupa "sesi 8", "sesi ke-8", "sesi ke 8"
+        // Menggunakan regex agar tidak false-positive pada "sesi 18", "diskusi.8", dsb.
+        boolean isSesi8 = lower.matches(".*(sesi\\s+ke[-\\s]?8|sesi\\s+8)([^0-9]|$).*");
+
+        // Pola Aktivitas Belajar 15: harus persis "aktivitas belajar 15" atau "ke-15"
+        boolean isAktivitasBelajar15 = lower.matches(".*(aktivitas\\s+belajar\\s+ke[-\\s]?15|aktivitas\\s+belajar\\s+15)([^0-9]|$).*");
+
         return isSesi8 || isAktivitasBelajar15;
     }
 

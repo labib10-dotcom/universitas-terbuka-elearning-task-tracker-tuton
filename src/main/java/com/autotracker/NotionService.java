@@ -187,9 +187,31 @@ public class NotionService {
         simpanDanAmbilId(namaEntri, namaMatkul); // Reuse, cukup buang return value-nya
     }
 
-    /** Hapus/arsip marker status dari Notion */
     public static void hapusStatusMatkulKomplit() {
-        String pageId = getPageId("[STATUS] Matkul Komplit", "SYSTEM");
+        arsipkanStatus("[STATUS] Matkul Komplit");
+    }
+
+    /** Cek apakah flag End Session sudah tersimpan di Notion */
+    public static boolean isEndSessionTersimpan() {
+        return sudahAda("[STATUS] End Session", "SYSTEM");
+    }
+
+    /** Simpan flag End Session ke Notion (persistent antar-run) */
+    public static void simpanStatusEndSession() {
+        if (!isEndSessionTersimpan()) {
+            simpan("[STATUS] End Session", "SYSTEM");
+            System.out.println("💾 Flag End Session disimpan ke Notion.");
+        }
+    }
+
+    /** Hapus/reset flag End Session dari Notion (saat semester baru) */
+    public static void hapusStatusEndSession() {
+        arsipkanStatus("[STATUS] End Session");
+    }
+
+    /** Arsipkan (soft-delete) sebuah status marker dari Notion */
+    private static void arsipkanStatus(String namaStatus) {
+        String pageId = getPageId(namaStatus, "SYSTEM");
         if (pageId != null) {
             try {
                 String token = getToken();
@@ -209,9 +231,9 @@ public class NotionService {
 
                 HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
                 if (res.statusCode() == 200) {
-                    System.out.println("🗑️ Berhasil menghapus [STATUS] Matkul Komplit dari Notion.");
+                    System.out.println("🗑️ Berhasil menghapus " + namaStatus + " dari Notion.");
                 } else {
-                    System.out.println("⚠️ Gagal menghapus [STATUS] Matkul Komplit: " + res.body());
+                    System.out.println("⚠️ Gagal menghapus " + namaStatus + ": " + res.body());
                 }
             } catch (Exception e) {
                 System.out.println("❌ Error hapus status Notion: " + e.getMessage());
