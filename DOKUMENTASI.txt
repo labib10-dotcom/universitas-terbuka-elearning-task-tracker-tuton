@@ -65,8 +65,13 @@ FITUR AKTIF (v6.0)
   - Kirim pengingat ke Telegram jika ada unread count > 0 dari orang lain.
 
 [CEK 5 / TELEGRAM KEYWORD] TRIGGER WORD "Stop" & "Run"
-  - API: /getUpdates (Telegram Bot API)
+  - Method: TelegramService.ambilDanAkuiKeyword() — satu panggilan untuk semua keyword.
   - Dibaca di awal setiap run, sebelum cek elearning.
+  - Semua update di-ACKNOWLEDGE setelah dibaca (getUpdates?offset=max_id+1) agar
+    pesan lama tidak muncul lagi di run berikutnya. Ini mencegah bug di mana bot
+    mendeteksi keyword "Stop" lama bersamaan dengan keyword "Run" baru dalam satu run.
+  - Keyword diproses secara BERURUTAN sesuai urutan pesan di chat.
+    Perintah terakhir yang dikirim user adalah yang berlaku (last command wins).
 
   Keyword "Stop":
     - Jika diterima dan [STATUS] Stop belum ada di Notion:
@@ -80,6 +85,7 @@ FITUR AKTIF (v6.0)
       → Menghapus (arsip) penanda [STATUS] Stop dari Notion
       → Mengirimkan konfirmasi ke Telegram
     - Efek: laporan periodik kembali dikirim seperti biasa
+
 
 [PENANGANAN AKHIR SEMESTER]
   - Jika daftar mata kuliah di e-learning Moodle kosong (semester berakhir):
@@ -369,3 +375,18 @@ RIWAYAT PERUBAHAN
   - UPDATE: Tambah logging Telegram (status HTTP response) untuk debugging.
   - UPDATE: Tambah logging detail di TelegramService.kirim() untuk memudahkan
     debug saat pesan tidak terkirim.
+
+[v6.1] - Fix Bug: Keyword Telegram Dideteksi Ganda Antar Run
+  - BUG: Bot mendeteksi keyword "Stop" lama dari run sebelumnya bersamaan dengan
+    keyword "Run" baru, sehingga dalam satu run muncul "Bot dihentikan" lalu
+    langsung "Bot diaktifkan kembali" dan laporan tetap terkirim.
+  - ROOT CAUSE: cekKeyword() menggunakan /getUpdates tanpa offset, sehingga
+    Telegram mengembalikan semua pesan lama yang belum di-acknowledge.
+    Dua panggilan cekKeyword() terpisah untuk "Stop" dan "Run" masing-masing
+    membaca ulang seluruh history yang sama.
+  - FIX: Ganti cekKeyword() dengan ambilDanAkuiKeyword() yang:
+    1. Membaca SEMUA keyword sekaligus dalam satu panggilan /getUpdates.
+    2. Langsung acknowledge semua update dengan /getUpdates?offset={max_id+1}
+       sehingga pesan lama tidak muncul di run berikutnya.
+    3. Memproses keyword secara berurutan sesuai urutan pesan (last command wins).
+  - PERUBAHAN FILE: TelegramService.java (method baru), App.java (logika baru).

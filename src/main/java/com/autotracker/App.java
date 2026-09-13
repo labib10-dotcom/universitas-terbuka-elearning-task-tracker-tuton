@@ -24,28 +24,31 @@ public class App {
         System.out.println("\n⏳ [" + java.time.LocalTime.now() + "] Bot bangun! Mengecek e-learning...");
 
         // ── CEK TRIGGER WORD dari Telegram ──────────────────────────────────────
-        // "Stop" → nonaktifkan laporan periodik
-        if (TelegramService.cekKeyword("Stop")) {
-            System.out.println("📥 Terdeteksi keyword 'Stop' dari Telegram.");
-            if (!NotionService.isStopAktif()) {
-                NotionService.simpanStatusStop();
-                TelegramService.kirim("⏸️ Bot dihentikan. Laporan periodik tidak akan dikirim sampai kamu kirim 'Run'.\n\n💡 Kirim 'Run' untuk mengaktifkan kembali.");
-            } else {
-                System.out.println("ℹ️ [STATUS] Stop sudah aktif, tidak perlu disimpan ulang.");
-            }
-        }
-
-        // "Run" → aktifkan kembali laporan periodik
-        if (TelegramService.cekKeyword("Run")) {
-            System.out.println("📥 Terdeteksi keyword 'Run' dari Telegram.");
-            if (NotionService.isStopAktif()) {
-                NotionService.hapusStatusStop();
-                TelegramService.kirim("▶️ Bot diaktifkan kembali! Laporan periodik akan dikirim seperti biasa.");
-            } else {
-                System.out.println("ℹ️ [STATUS] Stop tidak aktif, bot sudah jalan normal.");
+        // Baca semua keyword SEKALIGUS dalam satu panggilan, lalu acknowledge
+        // semua update agar pesan lama tidak muncul lagi di run berikutnya.
+        // Diproses secara berurutan → perintah terakhir user yang berlaku.
+        List<String> keywords = TelegramService.ambilDanAkuiKeyword(List.of("Stop", "Run"));
+        for (String kw : keywords) {
+            if (kw.equals("stop")) {
+                System.out.println("📥 Memproses keyword 'Stop'...");
+                if (!NotionService.isStopAktif()) {
+                    NotionService.simpanStatusStop();
+                    TelegramService.kirim("⏸️ Bot dihentikan. Laporan periodik tidak akan dikirim sampai kamu kirim 'Run'.\n\n💡 Kirim 'Run' untuk mengaktifkan kembali.");
+                } else {
+                    System.out.println("ℹ️ [STATUS] Stop sudah aktif, tidak perlu disimpan ulang.");
+                }
+            } else if (kw.equals("run")) {
+                System.out.println("📥 Memproses keyword 'Run'...");
+                if (NotionService.isStopAktif()) {
+                    NotionService.hapusStatusStop();
+                    TelegramService.kirim("▶️ Bot diaktifkan kembali! Laporan periodik akan dikirim seperti biasa.");
+                } else {
+                    System.out.println("ℹ️ [STATUS] Stop tidak aktif, bot sudah jalan normal.");
+                }
             }
         }
         // ────────────────────────────────────────────────────────────────────────
+
 
         String token = MoodleService.getToken();
         if (token == null) {

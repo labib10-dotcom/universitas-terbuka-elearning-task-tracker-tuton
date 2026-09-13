@@ -4,6 +4,8 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.List;
 import io.github.cdimascio.dotenv.Dotenv;
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -49,46 +51,79 @@ public class TelegramService {
         }
     }
 
-    /** Cek apakah user mengirimkan keyword di Telegram */
-    public static boolean cekKeyword(String keyword) {
+    /**
+     * Ambil semua keyword yang dikirim user dari Telegram dalam SATU panggilan,
+     * kemudian langsung ACKNOWLEDGE semua update agar tidak muncul lagi di run
+     * berikutnya.
+     *
+     * Urutan keyword dalam list dijaga sesuai urutan pesan — sehingga perintah
+     * terakhir dari user yang berlaku (last command wins).
+     *
+     * @param targetKeywords Daftar keyword yang ingin dicari (case-insensitive).
+     * @return List keyword yang ditemukan, dalam urutan kemunculannya di chat.
+     */
+    public static List<String> ambilDanAkuiKeyword(List<String> targetKeywords) {
+        List<String> ditemukan = new ArrayList<>();
         try {
             String botToken = dotenv.get("TELEGRAM_BOT_TOKEN");
-            String chatId = dotenv.get("TELEGRAM_CHAT_ID");
-            if (botToken == null || chatId == null) return false;
+            String chatId   = dotenv.get("TELEGRAM_CHAT_ID");
+            if (botToken == null || chatId == null) return ditemukan;
 
+            // Ambil semua update yang belum di-acknowledge
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create("https://api.telegram.org/bot" + botToken + "/getUpdates"))
-                    .header("Content-Type", "application/json")
                     .GET()
                     .build();
 
             HttpResponse<String> res = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-            if (res.statusCode() == 200) {
-                JSONObject json = new JSONObject(res.body());
-                if (json.has("result")) {
-                    JSONArray updates = json.getJSONArray("result");
-                    for (int i = 0; i < updates.length(); i++) {
-                        JSONObject update = updates.getJSONObject(i);
-                        if (update.has("message")) {
-                            JSONObject message = update.getJSONObject("message");
-                            if (message.has("chat") && message.has("text")) {
-                                JSONObject chat = message.getJSONObject("chat");
-                                long msgChatId = chat.getLong("id");
-                                if (String.valueOf(msgChatId).equals(chatId)) {
-                                    String text = message.getString("text").trim();
-                                    // Cocokkan keyword secara case-insensitive (dengan atau tanpa tanda seru)
-                                    if (text.equalsIgnoreCase(keyword) || text.equalsIgnoreCase(keyword.replace("!", ""))) {
-                                        return true;
-                                    }
-                                }
-                            }
-                        }
+            if (res.statusCode() != 200) return ditemukan;
+
+            JSONObject json = new JSONObject(res.body());
+            if (!json.has("result")) return ditemukan;
+
+            JSONArray updates = json.getJSONArray("result");
+            int maxUpdateId = -1;
+
+            System.out.println("📬 [TELEGRAM] " + updates.length() + " update ditemukan.");
+
+            for (int i = 0; i < updates.length(); i++) {
+                JSONObject update = updates.getJSONObject(i);
+                int updateId = update.optInt("update_id", -1);
+                if (updateId > maxUpdateId) maxUpdateId = updateId;
+
+                if (!update.has("message")) continue;
+                JSONObject message = update.getJSONObject("message");
+                if (!message.has("chat") || !message.has("text")) continue;
+
+                long msgChatId = message.getJSONObject("chat").getLong("id");
+                if (!String.valueOf(msgChatId).equals(chatId)) continue;
+
+                String text = message.getString("text").trim();
+                for (String kw : targetKeywords) {
+                    // Cocokkan case-insensitive, dengan atau tanpa tanda seru
+                    if (text.equalsIgnoreCase(kw) || text.equalsIgnoreCase(kw.replace("!", ""))) {
+                        ditemukan.add(kw.toLowerCase());
+                        System.out.println("   📥 Keyword terdeteksi: '" + text + "' (update_id=" + updateId + ")");
+                        break;
                     }
                 }
             }
+
+            // Acknowledge SEMUA update agar tidak diproses ulang di run berikutnya
+            if (maxUpdateId >= 0) {
+                int offset = maxUpdateId + 1;
+                HttpRequest ackReq = HttpRequest.newBuilder()
+                        .uri(URI.create("https://api.telegram.org/bot" + botToken
+                                + "/getUpdates?offset=" + offset))
+                        .GET()
+                        .build();
+                httpClient.send(ackReq, HttpResponse.BodyHandlers.ofString());
+                System.out.println("✅ [TELEGRAM] Semua update di-acknowledge (offset=" + offset + ").");
+            }
+
         } catch (Exception e) {
-            System.out.println("⚠️ Gagal cek keyword Telegram: " + e.getMessage());
+            System.out.println("⚠️ Gagal ambil keyword Telegram: " + e.getMessage());
         }
-        return false;
+        return ditemukan;
     }
 }
