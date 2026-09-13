@@ -211,7 +211,7 @@ Bot menggunakan Notion sebagai **persistent state** — pengganti file lokal yan
 
 ## 🛠️ Teknologi
 
-- **Java 21** + **Maven**
+- **Java 25** + **Maven**
 - **Moodle Web Services API** (token-based)
 - **Notion API** v2022-06-28
 - **Telegram Bot API**
