@@ -250,7 +250,7 @@ Trigger manual: Settings → Actions → "Auto Bot Tracker UT" → Run workflow
 
 Step yang dijalankan:
   1. actions/checkout@v4         → Clone kode terbaru
-  2. actions/setup-java@v4       → Setup Java 25 (Temurin) + cache Maven
+  2. actions/setup-java@v4       → Setup Java 21 (Temurin) + cache Maven
   3. Bikin File .env             → Inject secrets ke file .env
   4. mvn clean package           → Compile & build JAR
   5. java -jar *-jar-with-dependencies.jar → Jalankan bot
