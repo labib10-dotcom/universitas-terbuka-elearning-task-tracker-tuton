@@ -264,7 +264,9 @@ public class MoodleService {
             // cukup track Tugas saja.
             return lower.startsWith("tugas");
         }
-        return lower.startsWith("diskusi") ||
+        // Gunakan contains("diskusi") agar menangkap nama seperti "Forum Diskusi.1"
+        // yang tidak diawali tapi mengandung kata "diskusi"
+        return lower.contains("diskusi") ||
                lower.startsWith("kehadiran") ||
                lower.startsWith("tugas");
     }
